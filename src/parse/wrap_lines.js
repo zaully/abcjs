@@ -173,7 +173,7 @@ function freeFormLineBreaks(widths, lineBreakPoint) {
 			var newDistance = attemptedWidth - lineBreakPoint;
 			if (oldDistance < newDistance && totalThisLine > 0) {
 				lineBreaks.push(i - 1);
-				totals.push(Math.round(totalThisLine - width));
+				totals.push(Math.round(totalThisLine));
 				totalThisLine = width;
 			} else {
 				if (i < widths.length-1) {
@@ -261,11 +261,57 @@ function optimizeLineWidths(widths, lineBreakPoint, lineBreaks, explanation) {
 	for (var i = 0; i < numLines; i++)
 		idealWidths.push(idealWidth*(i+1));
 
+	// For small numbers of measures, try balanced distributions first
+	// This helps avoid suboptimal splits like 1+3 when 2+2 would be better
+	var otherTries = [];
+	var numMeasures = widths.measureWidths.length;
+	
+	// If we have a small number of measures and need 2 lines, try balanced splits
+	if (numMeasures <= 8 && numLines === 2) {
+		var measuresPerLine = Math.floor(numMeasures / 2);
+		var remainder = numMeasures % 2;
+		
+		// Try balanced distribution (e.g., for 4 measures: 2+2, for 5 measures: 2+3 or 3+2)
+		for (var balanced = 0; balanced <= remainder; balanced++) {
+			var firstLineCount = measuresPerLine + balanced;
+			if (firstLineCount > 0 && firstLineCount < numMeasures) {
+				var balancedBreaks = [firstLineCount - 1];
+				var balancedWidths = [];
+				var acc = 0;
+				for (var m = 0; m < numMeasures; m++) {
+					acc += widths.measureWidths[m];
+					if (m === firstLineCount - 1) {
+						balancedWidths.push(acc);
+						acc = 0;
+					}
+				}
+				if (acc > 0) balancedWidths.push(acc);
+				
+				// Calculate variance for this balanced split
+				var balancedVariance = 0;
+				for (var v = 0; v < balancedWidths.length; v++) {
+					balancedVariance += Math.abs(balancedWidths[v] - idealWidth);
+				}
+				balancedVariance = balancedVariance / balancedWidths.length;
+				
+				otherTries.push({
+					accumulator: widths.total,
+					lineAccumulator: acc,
+					lineWidths: balancedWidths,
+					lastVariance: Math.abs(acc - idealWidth),
+					highestVariance: balancedVariance,
+					currLine: numLines - 1,
+					lineBreaks: balancedBreaks,
+					startIndex: numMeasures
+				});
+			}
+		}
+	}
+	
 	//	from first measure, step through accum. Widths until the abs of the ideal is greater than the last one.
 	// This can sometimes look funny in edge cases, so when the length is within 10%, try one more or one less to see which is better.
 	// This is better than trying all the possibilities because that would get to be a huge number for even a medium size piece.
 	// This method seems to never generate more than about 16 tries and it is usually 4 or less.
-	var otherTries = [];
 	otherTries.push({
 		accumulator: 0,
 		lineAccumulator: 0,
